@@ -2,13 +2,17 @@ import streamlit as st
 import pandas as pd
 import os
 
-st.set_page_config(page_title="就活AI求人ダッシュボード", layout="wide")
+st.set_page_config(
+    page_title="Job Finder AI",
+    page_icon="🚀",
+    layout="wide"
+)
 
-st.title("📊 就活AI求人ダッシュボード")
-st.write("Wantedlyの求人を自動収集・整理するツール")
+# ===== ヘッダー =====
+st.title("🚀 Job Finder AI")
+st.caption("自動収集された求人を効率的に検索・管理")
 
 DATA_FILE = "wantedly_jobs.csv"
-FAV_FILE = "favorites.csv"
 
 @st.cache_data
 def load_data():
@@ -18,22 +22,22 @@ def load_data():
 
 df = load_data()
 
-def load_fav():
-    if os.path.exists(FAV_FILE):
-        return pd.read_csv(FAV_FILE)
-    return pd.DataFrame(columns=df.columns)
+# ===== KPI表示 =====
+col1, col2, col3 = st.columns(3)
 
-def save_fav(fav_df):
-    fav_df.to_csv(FAV_FILE, index=False, encoding="utf-8-sig")
+col1.metric("総求人数", len(df))
+col2.metric("キーワード数", df["keyword"].nunique() if len(df) else 0)
+col3.metric("最新更新", "今日")
 
-favorites = load_fav()
+st.divider()
 
-# ===== フィルタ =====
-st.sidebar.header("検索")
+# ===== フィルタUI =====
+with st.sidebar:
+    st.header("🔍 フィルター")
 
-keyword = st.sidebar.text_input("キーワード")
-exclude = st.sidebar.text_input("除外")
-company = st.sidebar.text_input("会社名")
+    keyword = st.text_input("キーワード検索")
+    exclude = st.text_input("除外（カンマ区切り）")
+    selected_kw = st.multiselect("カテゴリ", df["keyword"].unique())
 
 filtered = df.copy()
 
@@ -44,36 +48,28 @@ if exclude:
     for ex in exclude.split(","):
         filtered = filtered[~filtered["title"].str.contains(ex.strip(), na=False)]
 
-if company:
-    filtered = filtered[filtered["company"].str.contains(company, na=False)]
+if selected_kw:
+    filtered = filtered[filtered["keyword"].isin(selected_kw)]
 
-st.write(f"件数: {len(filtered)}")
+# ===== テーブル =====
+st.subheader(f"📄 求人一覧（{len(filtered)}件）")
 st.dataframe(filtered, use_container_width=True)
 
 st.divider()
 
-# ===== お気に入り =====
-st.subheader("⭐ お気に入り")
+# ===== カード表示（SaaSっぽい）=====
+st.subheader("✨ ピックアップ")
 
-selected = st.selectbox("選択", filtered["title"] if len(filtered) else [])
+for _, row in filtered.head(5).iterrows():
+    with st.container():
+        st.markdown(f"### {row['title']}")
+        st.write(f"🏢 {row['company']} | 🏷 {row['keyword']}")
+        st.markdown(f"[詳細を見る]({row['link']})")
+        st.divider()
 
-if st.button("追加"):
-    row = filtered[filtered["title"] == selected]
-    favorites = pd.concat([favorites, row]).drop_duplicates(subset=["link"])
-    save_fav(favorites)
-    st.success("追加しました")
-
-favorites = load_fav()
-st.dataframe(favorites, use_container_width=True)
-
-# ===== リンク =====
-st.subheader("🔗 リンク")
-for _, row in filtered.head(10).iterrows():
-    st.markdown(f"- [{row['title']}]({row['link']})")
-
-# ===== DL =====
+# ===== ダウンロード =====
 st.download_button(
-    "CSVダウンロード",
+    "📥 CSVダウンロード",
     filtered.to_csv(index=False).encode("utf-8-sig"),
     "jobs.csv"
 )
