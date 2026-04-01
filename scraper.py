@@ -10,10 +10,19 @@ import os
 import requests
 
 # ===== 設定 =====
-KEYWORDS = ["エンジニア", "AI", "Web", "インターン"]
+KEYWORDS = [
+    "エンジニア",
+    "AI",
+    "Web",
+    "インターン",
+    "データサイエンス"
+]
+
 EXCLUDE_KEYWORDS = ["営業", "セールス"]
 CSV_FILE = "wantedly_jobs.csv"
 LINE_TOKEN = "ここにLINEトークン"
+
+MAX_PER_KEYWORD = 10  # ← キーワードごとの取得数
 
 # ===== LINE通知 =====
 def send_line(message):
@@ -31,7 +40,7 @@ if os.path.exists(CSV_FILE):
     old_df = pd.read_csv(CSV_FILE)
     old_links = set(old_df["link"].tolist())
 
-# ===== Selenium設定（安定版）=====
+# ===== Selenium設定 =====
 options = Options()
 options.add_argument("--headless")
 options.add_argument("--no-sandbox")
@@ -56,6 +65,8 @@ for kw in KEYWORDS:
     time.sleep(5)
 
     elements = driver.find_elements(By.CSS_SELECTOR, "a")
+
+    count = 0  # ← キーワードごとのカウント
 
     for el in elements:
         try:
@@ -86,14 +97,17 @@ for kw in KEYWORDS:
         if link not in old_links:
             messages.append(f"🆕[{kw}]\n{text}\n{link}")
 
-        if len(titles) >= 50:
+        count += 1
+
+        # キーワードごとに制限
+        if count >= MAX_PER_KEYWORD:
             break
 
     time.sleep(1)
 
 driver.quit()
 
-# ===== 0件対策 =====
+# ===== データ0件対策 =====
 if len(titles) == 0:
     print("⚠ データ0件 → ダミー追加")
     titles = ["サンプル求人"]
@@ -115,7 +129,7 @@ df.to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
 
 print(f"保存完了: {len(df)}件")
 
-# ===== LINE通知 =====
+# ===== LINE通知（まとめ）=====
 if messages:
     msg = "【新着求人まとめ】\n\n" + "\n\n".join(messages[:5])
     send_line(msg)
