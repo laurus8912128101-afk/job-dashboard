@@ -1,76 +1,100 @@
-import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
 import pandas as pd
-import os
 import time
+import os
+import requests
 
+# ===== 設定 =====
 KEYWORDS = ["エンジニア", "AI", "Web", "インターン"]
 EXCLUDE_KEYWORDS = ["営業", "セールス"]
-
-BASE_URL = "https://www.wantedly.com/projects?keywords="
 CSV_FILE = "wantedly_jobs.csv"
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+LINE_TOKEN = "ここにLINEトークン"
 
-titles, companies, links, dates, keyword_list = [], [], [], [], []
+# ===== LINE通知 =====
+def send_line(message):
+    url = "https://notify-api.line.me/api/notify"
+    headers = {"Authorization": f"Bearer {LINE_TOKEN}"}
+    data = {"message": message}
+    requests.post(url, headers=headers, data=data)
 
-# ====== スクレイピング ======
+# ===== 既存データ取得 =====
+old_links = set()
+if os.path.exists(CSV_FILE):
+    old_df = pd.read_csv(CSV_FILE)
+    old_links = set(old_df["link"].tolist())
+
+# ===== Selenium設定 =====
+options = Options()
+options.add_argument("--headless")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+
+driver = webdriver.Chrome(options=options)
+
+titles = []
+companies = []
+links = []
+dates = []
+keyword_list = []
+
+messages = []
+
+# ===== スクレイピング =====
 for kw in KEYWORDS:
-    url = BASE_URL + kw
-    print(f"取得中: {url}")
+    url = f"https://www.wantedly.com/projects?keywords={kw}"
+    print(f"取得中: {kw}")
 
-    res = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(res.text, "html.parser")
+    driver.get(url)
+    time.sleep(5)
 
-    # セレクタを広めに（安定）
-    projects = soup.find_all("a", href=True)
+    elements = driver.find_elements(By.CSS_SELECTOR, "a")
 
-    print(f"取得リンク数: {len(projects)}")
+    for el in elements:
+        link = el.get_attribute("href")
+        text = el.text.strip()
 
-    for p in projects:
-        link = p.get("href")
-
-        # Wantedlyの求人リンクだけ抽出
-        if not link.startswith("/projects/"):
+        if not link or "/projects/" not in link:
             continue
 
-        title_text = p.text.strip()
-
-        if not title_text:
+        if not text:
             continue
 
-        # 除外
-        if any(ex in title_text for ex in EXCLUDE_KEYWORDS):
+        if any(ex in text for ex in EXCLUDE_KEYWORDS):
             continue
 
-        full_link = "https://www.wantedly.com" + link
-
-        # 重複防止
-        if full_link in links:
+        if link in links:
             continue
 
-        titles.append(title_text)
+        titles.append(text)
         companies.append("不明")
-        links.append(full_link)
+        links.append(link)
         dates.append("不明")
         keyword_list.append(kw)
 
-        # 取りすぎ防止
-        if len(titles) > 50:
+        # ===== 新着判定 =====
+        if link not in old_links:
+            messages.append(f"🆕[{kw}]\n{text}\n{link}")
+
+        if len(titles) >= 50:
             break
 
     time.sleep(1)
 
-# ====== データなかった時の保険 ======
+driver.quit()
+
+# ===== 0件対策 =====
 if len(titles) == 0:
     print("⚠ データ0件 → ダミー追加")
-    titles.append("サンプル求人（表示確認用）")
-    companies.append("テスト株式会社")
-    links.append("https://example.com")
-    dates.append("今日")
-    keyword_list.append("テスト")
+    titles = ["サンプル求人"]
+    companies = ["テスト株式会社"]
+    links = ["https://example.com"]
+    dates = ["今日"]
+    keyword_list = ["テスト"]
 
-# ====== 保存 ======
+# ===== CSV保存 =====
 df = pd.DataFrame({
     "keyword": keyword_list,
     "title": titles,
@@ -82,3 +106,11 @@ df = pd.DataFrame({
 df.to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
 
 print(f"保存完了: {len(df)}件")
+
+# ===== LINE通知（まとめ）=====
+if messages:
+    text = "【新着求人まとめ】\n\n" + "\n\n".join(messages[:5])
+    send_line(text)
+    print("LINE通知送信")
+else:
+    print("新着なし")
