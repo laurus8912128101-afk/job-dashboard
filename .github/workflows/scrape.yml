@@ -19,15 +19,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - run: pip install -r requirements.txt
+      - name: Chromeインストール
+        uses: browser-actions/setup-chrome@v1
 
-      - run: python scraper.py
+      - name: ライブラリ
+        run: pip install -r requirements.txt
+
+      - name: 実行
+        run: python scraper.py
 
       - name: push
         run: |
           git config --global user.name "bot"
           git config --global user.email "bot@example.com"
           git add wantedly_jobs.csv
-          git commit -m "update" || echo "no change"
+          git commit -m "update jobs" || echo "no change"
           git pull --rebase
           git push
