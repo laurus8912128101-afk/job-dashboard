@@ -12,53 +12,63 @@ CSV_FILE = "wantedly_jobs.csv"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-# ====== 前回データ ======
-old_links = set()
-if os.path.exists(CSV_FILE):
-    old_df = pd.read_csv(CSV_FILE)
-    old_links = set(old_df["link"].tolist())
-
 titles, companies, links, dates, keyword_list = [], [], [], [], []
-messages = []
 
 # ====== スクレイピング ======
 for kw in KEYWORDS:
     url = BASE_URL + kw
+    print(f"取得中: {url}")
+
     res = requests.get(url, headers=HEADERS)
     soup = BeautifulSoup(res.text, "html.parser")
 
-    projects = soup.select("a[data-testid='project-card']")
+    # セレクタを広めに（安定）
+    projects = soup.find_all("a", href=True)
+
+    print(f"取得リンク数: {len(projects)}")
 
     for p in projects:
-        title = p.select_one("h1, h2, h3")
-        if not title:
+        link = p.get("href")
+
+        # Wantedlyの求人リンクだけ抽出
+        if not link.startswith("/projects/"):
             continue
 
-        title_text = title.text.strip()
+        title_text = p.text.strip()
+
+        if not title_text:
+            continue
 
         # 除外
         if any(ex in title_text for ex in EXCLUDE_KEYWORDS):
             continue
 
-        company = p.select_one("div")
-        link = "https://www.wantedly.com" + p.get("href")
+        full_link = "https://www.wantedly.com" + link
 
-        date_tag = p.select_one("time")
-        date_text = date_tag.text.strip() if date_tag else "不明"
-
-        if link in links:
+        # 重複防止
+        if full_link in links:
             continue
 
-        if link not in old_links:
-            titles.append(title_text)
-            companies.append(company.text.strip() if company else "")
-            links.append(link)
-            dates.append(date_text)
-            keyword_list.append(kw)
+        titles.append(title_text)
+        companies.append("不明")
+        links.append(full_link)
+        dates.append("不明")
+        keyword_list.append(kw)
 
-            messages.append(f"🆕[{kw}]\n{title_text}\n{company.text.strip() if company else ''}\n{date_text}\n{link}")
+        # 取りすぎ防止
+        if len(titles) > 50:
+            break
 
-        time.sleep(0.5)
+    time.sleep(1)
+
+# ====== データなかった時の保険 ======
+if len(titles) == 0:
+    print("⚠ データ0件 → ダミー追加")
+    titles.append("サンプル求人（表示確認用）")
+    companies.append("テスト株式会社")
+    links.append("https://example.com")
+    dates.append("今日")
+    keyword_list.append("テスト")
 
 # ====== 保存 ======
 df = pd.DataFrame({
@@ -71,4 +81,4 @@ df = pd.DataFrame({
 
 df.to_csv(CSV_FILE, index=False, encoding="utf-8-sig")
 
-print("scraping done")
+print(f"保存完了: {len(df)}件")
